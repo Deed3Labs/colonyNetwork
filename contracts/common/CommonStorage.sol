@@ -82,7 +82,7 @@ abstract contract CommonStorage is DSAuth, MetaTransactionMsgSender {
   function authorizedSender(address src, bytes4 sig) internal view returns (bool) {
     if (src == owner) {
       return true;
-    } else if (authority == DSAuthority(0)) {
+    } else if (authority == DSAuthority(address(0))) {
       return false;
     } else {
       return authority.canCall(src, address(this), sig);
