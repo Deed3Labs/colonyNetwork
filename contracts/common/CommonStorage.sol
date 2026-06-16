@@ -18,7 +18,7 @@
 
 pragma solidity 0.8.28;
 
-import { DSAuth } from "./../../lib/dappsys/auth.sol";
+import { DSAuth, DSAuthority } from "./../../lib/dappsys/auth.sol";
 import { MetaTransactionMsgSender } from "./../common/MetaTransactionMsgSender.sol";
 
 // ignore-file-swc-131
@@ -63,5 +63,29 @@ abstract contract CommonStorage is DSAuth, MetaTransactionMsgSender {
 
   modifier always() {
     _;
+  }
+
+  // SECURITY: override DSAuth's `auth` so authorization uses the meta-aware msgSender() and does
+  // NOT honour DSAuth's `msg.sender == address(this)` self-trust. executeMetaTransaction dispatches
+  // its payload via a self-call (address(this).call), so without this override anyone could
+  // meta-relay an `auth`-guarded admin function on a CommonStorage-based contract (e.g.
+  // ColonyNetwork: setTokenLocking / initialise / addColonyVersion ...) because the inner call
+  // runs with msg.sender == address(this). Colonies already override `auth` in ColonyStorage; this
+  // closes the same hole for ColonyNetwork and any other CommonStorage-based contract.
+  // Ref: ShapeShift FOX Colony exploit, Arbitrum, 2026-05-13.
+  modifier auth() virtual override {
+    require(authorizedSender(msgSender(), msg.sig), "ds-auth-unauthorized");
+    _;
+  }
+
+  // DSAuth.isAuthorized, minus the `src == address(this)` self-trust (see the `auth` override above).
+  function authorizedSender(address src, bytes4 sig) internal view returns (bool) {
+    if (src == owner) {
+      return true;
+    } else if (authority == DSAuthority(0)) {
+      return false;
+    } else {
+      return authority.canCall(src, address(this), sig);
+    }
   }
 }
