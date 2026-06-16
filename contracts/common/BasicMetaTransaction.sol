@@ -6,12 +6,26 @@ import { MetaTransactionMsgSender } from "./MetaTransactionMsgSender.sol";
 import { MultiChain } from "./MultiChain.sol";
 import { IBasicMetaTransaction } from "./IBasicMetaTransaction.sol";
 
+/// @notice Selectors of the EtherRouter / dappsys-DSAuth proxy-admin functions. These are
+/// authorized purely on `msg.sender == address(this)` (they do NOT use the meta-aware
+/// `msgSender()`), so they must never be reachable via a meta-transaction's self-call.
+interface IProxyAdminSelectors {
+  function setResolver(address) external;
+  function setOwner(address) external;
+  function setAuthority(address) external;
+}
+
 abstract contract BasicMetaTransaction is
   IBasicMetaTransaction,
   DSMath,
   MetaTransactionMsgSender,
   MultiChain
 {
+  // Proxy / DSAuth admin selectors that must never be invoked via a meta-transaction (see executeMetaTransaction).
+  bytes4 private constant PROXY_ADMIN_SET_RESOLVER = IProxyAdminSelectors.setResolver.selector;
+  bytes4 private constant PROXY_ADMIN_SET_OWNER = IProxyAdminSelectors.setOwner.selector;
+  bytes4 private constant PROXY_ADMIN_SET_AUTHORITY = IProxyAdminSelectors.setAuthority.selector;
+
   function getMetatransactionNonce(address _user) public view virtual returns (uint256 nonce);
 
   // NB if implementing this functionality in a contract with recovery mode,
@@ -40,6 +54,29 @@ abstract contract BasicMetaTransaction is
       verify(_user, getMetatransactionNonce(_user), block.chainid, _payload, _sigR, _sigS, _sigV),
       "metatransaction-signer-signature-mismatch"
     );
+
+    // SECURITY (resolver-hijack / proxy takeover): the payload below is dispatched via a
+    // self-call (address(this).call), so the inner call runs with msg.sender == address(this).
+    // The EtherRouter proxy and the dappsys DSAuth it inherits authorize ANY caller where
+    // msg.sender == address(this) and do NOT route through the meta-aware msgSender(). Without
+    // this guard, anyone can meta-relay setResolver/setOwner/setAuthority and take over the
+    // contract's proxy (repoint the resolver -> attacker-controlled delegatecall -> full drain).
+    // Colony's own `auth` uses msgSender() and is unaffected; these three admin selectors are the
+    // only self-trusting surface, so they must never be reachable through a meta-transaction.
+    // Ref: ShapeShift FOX Colony exploit, Arbitrum, 2026-05-13.
+    require(_payload.length >= 4, "colony-metatx-payload-too-short");
+    bytes4 targetSig;
+    // solhint-disable-next-line no-inline-assembly
+    assembly {
+      targetSig := mload(add(_payload, 0x20))
+    }
+    require(
+      targetSig != PROXY_ADMIN_SET_RESOLVER &&
+        targetSig != PROXY_ADMIN_SET_OWNER &&
+        targetSig != PROXY_ADMIN_SET_AUTHORITY,
+      "colony-metatx-admin-selector-forbidden"
+    );
+
     incrementMetatransactionNonce(_user);
 
     // Append _user at the end to extract it from calling context

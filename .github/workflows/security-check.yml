@@ -1,0 +1,48 @@
+name: security-check
+
+# Lightweight CI for the Deed3Labs fork: compile the contracts and run the
+# meta-transaction self-call security regression test. Runs on GitHub-hosted
+# runners (no external CI account / DockerHub secrets required, unlike the
+# upstream CircleCI config).
+
+on:
+  push:
+    branches:
+      - "security/**"
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HUSKY: 0
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node 20.11.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.11.0"
+
+      - name: Set up pnpm 8.14.1
+        uses: pnpm/action-setup@v4
+        with:
+          version: "8.14.1"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      - name: Meta-transaction security regression test
+        run: npx hardhat test ./test/contracts-network/metatx-admin-selfcall-guard.js
