@@ -96,8 +96,11 @@ contract("Meta-transaction security: admin self-call guard", (accounts) => {
       const txData = colonyNetwork.contract.methods.setTokenLocking(ATTACKER).encodeABI();
 
       // CommonStorage's overridden `auth` resolves the signer via msgSender() (== ATTACKER, no
-      // permission) and no longer self-trusts address(this), so the self-call is rejected.
-      await checkErrorRevert(relayAsAttacker(colonyNetwork, txData), "ds-auth-unauthorized");
+      // permission) and no longer self-trusts address(this), so the inner self-call reverts with
+      // `ds-auth-unauthorized`. executeMetaTransaction surfaces any failed self-call as its generic
+      // wrapper, so that is the revert the caller observes; the state-unchanged assertion below
+      // confirms the admin function did NOT execute (without the fix it would succeed).
+      await checkErrorRevert(relayAsAttacker(colonyNetwork, txData), "colony-metatx-function-call-unsuccessful");
 
       expect(await colonyNetwork.getTokenLocking()).to.equal(tokenLockingBefore);
     });
