@@ -6,7 +6,7 @@
 **Prepared for:** Deed3Labs — ClearHQ deployment (Base, Base Sepolia)
 **Date:** 2026‑06‑16
 **Classification of lead issue:** **CRITICAL** (CVSS 3.1 ≈ 9.3 — `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H`)
-**Status:** Remediated in code; **machine‑verification (compile + test) pending** — see §7.
+**Status:** Remediated; full‑tree **compile + targeted regression test are green in CI** (GitHub Actions `security-check`). Full suite / Base Sepolia replay / independent audit still required — see §7.
 
 ---
 
@@ -174,12 +174,11 @@ Asserts: meta‑relayed `setResolver`/`setOwner`/`setAuthority` revert (`colony-
 
 ## 7. Verification status (read this before deploying)
 
-This report **does not constitute a passing test run**. The review environment had no Solidity toolchain and restricted network egress, so the contracts were **not compiled or executed** here. Before any deployment the maintainer MUST:
+The fix has been **compiled against the full contract tree, and the regression test passes**, in CI (GitHub Actions `security-check` on `Deed3Labs/colonyNetwork` — green): the meta‑relayed `setResolver`/`setOwner`/`setAuthority` revert and the resolver is unchanged; the network `setTokenLocking` self‑call is rejected and its state is unchanged; and a legitimate non‑admin meta‑transaction still succeeds. The override‑chain compiled without needing an `override(CommonStorage)` change. (CI caught and the maintainer fixed two issues en route: a `DSAuthority(address(0))` cast and a test assertion string.) Before any deployment the maintainer MUST still:
 
-1. `npx hardhat compile` on the branch. *Watch:* the `CommonStorage.auth` override sits in the `DSAuth → CommonStorage → ColonyStorage` chain; if solc requires `ColonyStorage`'s existing `modifier auth() override` to become `override(CommonStorage)`, apply that one‑line change.
-2. Run the new regression test **and the full suite**, with particular attention to network **`initialise` / upgrade / cross‑chain** flows (part 2 changes authorization on the network's critical path).
-3. Deploy to **Base Sepolia** and **replay the exploit** (sign an attacker meta‑tx calling `setResolver` against a live colony) to confirm an on‑chain revert.
-4. Commission an **independent third‑party audit** of the meta‑tx / auth / proxy surface. This review found a second critical instance (F‑2) by manual inspection; that is evidence the area warrants external eyes, not a clean bill.
+1. Run the **full test suite** — the CI above runs only compilation plus the targeted regression test — with particular attention to network **`initialise` / upgrade / cross‑chain** flows (part 2 changes authorization on the network's critical path).
+2. Deploy to **Base Sepolia** and **replay the exploit** (sign an attacker meta‑tx calling `setResolver` against a live colony) to confirm an on‑chain revert.
+3. Commission an **independent third‑party audit** of the meta‑tx / auth / proxy surface. This review found a second critical instance (F‑2) by manual inspection; that is evidence the area warrants external eyes, not a clean bill.
 
 ---
 
